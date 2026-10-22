@@ -1,0 +1,39 @@
+{
+  "manifest_version": 1,
+  "id": "elevenlabs",
+  "name": "ElevenLabs voice",
+  "version": "0.1.0",
+  "description": "ElevenLabs text to speech for Odysseus: your account's voices, a credit reserve, and Kokoro or the browser voice when credits run low.",
+  "author": "Jaron Wilson",
+  "license": "AGPL-3.0",
+  "homepage": "https://github.com/Jaron-Wilson/odysseus-elevenlabs",
+  "min_core": "0.1",
+  "tags": ["ai", "media"],
+  "provides": ["tts.voice"],
+  "runtime": {
+    "type": "process",
+    "command": ["python", "-m", "elevenlabs_mod"],
+    "health": "/health",
+    "start": "boot",
+    "idle_stop_minutes": 0
+  },
+  "permissions": ["notify"],
+  "ui": {
+    "tabs": [{ "id": "main", "title": "ElevenLabs", "icon": "settings", "path": "/", "section": "system", "after": "theme" }],
+    "settings_path": "/"
+  },
+  "tutorial": {
+    "version": 1,
+    "steps": [
+      { "title": "ElevenLabs voices for Odysseus",
+        "body": "This add-on lets Odysseus read replies aloud and speak in voice calls with **ElevenLabs** voices, including your own cloned voices. The local Kokoro voice stays built in and takes over when ElevenLabs is paused." },
+      { "title": "Add your API key",
+        "body": "Paste an ElevenLabs API key on this page (create one at elevenlabs.io under *Developers > API keys*). It is checked with ElevenLabs and kept on the server only; the page shows just its last four characters.\n\nAlready had a key in Odysseus before this add-on? Import it instead, see the README (*Moving your key from Odysseus*).",
+        "action": { "label": "Open the key settings", "settings": true } },
+      { "title": "Pick it as the voice",
+        "body": "In Odysseus, open *Settings > AI Defaults > Voice call* and set **Speaks with** to *ElevenLabs voice (add-on)*. The voice list then shows your account's voices." },
+      { "title": "Save credits",
+        "body": "ElevenLabs bills per character. **Keep in reserve** stops using it below a share of your plan, and **Max per reply** caps how much of one reply is read aloud. A repeated phrase is cached and costs nothing." }
+    ]
+  }
+}
