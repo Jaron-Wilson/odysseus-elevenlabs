@@ -32,11 +32,11 @@ own Python (it needs `httpx`, which Odysseus already has).
 
 Odysseus before this add-on kept the ElevenLabs key itself (encrypted in `api_keys.json`), with its
 settings in `settings.json` and a usage tally. After installing the add-on, run this once on the
-server, with the Python Odysseus runs with (any Python with the `cryptography` package works; here
-`~/odysseus/.venv/bin/python`) and the data folder Odysseus uses:
+server, with any Python that has the `cryptography` package (the system `python3` on Ubuntu has it, as
+does the one Odysseus runs with), and the data folder Odysseus uses:
 
 ```
-! ~/odysseus/.venv/bin/python ~/odysseus-data/mods/elevenlabs/src/scripts/import_from_core.py --data-dir ~/odysseus-data
+! python3 ~/odysseus-data/mods/elevenlabs/src/scripts/import_from_core.py --data-dir ~/odysseus-data
 ```
 
 It copies the key (printing only its last four characters), the model, the reserve, the max per
