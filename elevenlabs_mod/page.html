@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ElevenLabs voice</title>
+<style>
+  :root { color-scheme: dark; --fg:#ddd; --dim:#9a9a9a; --line:#2c2c2c; --bg:#121212; --card:#1a1a1a; --red:#e5534b; --orange:#e8a33d; --green:#57ab5a; }
+  body { font: 14px system-ui, sans-serif; margin: 0; padding: 18px; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  p.lead { color: var(--dim); margin: 0 0 16px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; max-width: 760px; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .row label { width: 130px; color: var(--dim); font-size: 13px; }
+  input, select, button { font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 6px; border: 1px solid #3a3a3a; background: #202020; color: var(--fg); }
+  input[type=password] { flex: 1; min-width: 220px; }
+  select { flex: 1; min-width: 220px; }
+  input[type=number] { width: 90px; }
+  button { cursor: pointer; background: #262626; }
+  button:disabled { opacity: .5; cursor: default; }
+  .sub { font-size: 12px; color: var(--dim); }
+  .msg { font-size: 12px; min-height: 16px; }
+  .bad { color: var(--red); } .warn { color: var(--orange); } .ok { color: var(--green); }
+  code { background: #202020; padding: 1px 5px; border-radius: 4px; }
+</style></head>
+<body>
+<h1>ElevenLabs voice</h1>
+<p class="lead">ElevenLabs text to speech for Odysseus. Pick it under <em>Settings &gt; AI Defaults &gt; Voice call &gt; Speaks with</em>. When credits run low it pauses, and Odysseus speaks with Kokoro (or the browser voice) instead.</p>
+
+<div class="card">
+  <div class="row">
+    <label for="key">API key</label>
+    <input id="key" type="password" placeholder="Paste your ElevenLabs API key" autocomplete="off" spellcheck="false">
+    <button id="keySave">Save key</button>
+    <button id="keyRemove" hidden>Remove</button>
+  </div>
+  <div class="row"><label></label><span id="keyStatus" class="sub" style="flex:1"></span><button id="test" title="Speak a short sample (about 20 credits, then cached)">Test</button></div>
+</div>
+
+<div class="card">
+  <div class="row"><label for="model">Model</label><select id="model"></select></div>
+  <div class="row"><label>Credits</label><span id="credits" class="sub" style="flex:1">Not read yet</span><button id="refresh">Refresh</button></div>
+  <div class="row">
+    <label for="minPct">Keep in reserve</label>
+    <input id="minPct" type="number" min="0" max="100" step="1"> <span class="sub">% or</span>
+    <input id="minCredits" type="number" min="0" step="500" title="0 means only the percent counts"> <span class="sub">credits</span>
+  </div>
+  <div class="row"><label></label><span class="sub">Below this, Kokoro speaks instead (or the browser voice when Kokoro is not downloaded) until the credits reset.</span></div>
+  <div class="row">
+    <label for="maxChars">Max per reply</label>
+    <input id="maxChars" type="number" min="0" max="5000" step="100"> <span class="sub">characters read aloud per reply (0 = no limit)</span>
+  </div>
+  <div id="notice" class="msg warn"></div>
+  <div class="row"><label></label><button id="clearCache">Clear the audio cache</button></div>
+</div>
+<div id="msg" class="msg"></div>
+
+<script>
+// Relative URLs only: the page is served under /mods/elevenlabs/~<token>/ by the core.
+const $ = (id) => document.getElementById(id);
+const num = (n) => Number(n || 0).toLocaleString('en-US');
+let st = null, keyErr = '', audio = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+  const type = r.headers.get('Content-Type') || '';
+  if (type.startsWith('audio/')) { if (!r.ok) throw new Error('Request failed'); return r.blob(); }
+  let body = {};
+  try { body = await r.json(); } catch (_) { /* empty */ }
+  if (!r.ok) throw new Error(body.error || ('Request failed (' + r.status + ')'));
+  return body;
+}
+
+function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (cls || ''); if (!cls) setTimeout(() => { if (m.textContent === text) m.textContent = ''; }, 2500); }
+
+function resetText(unix) {
+  if (!unix) return '';
+  const d = new Date(unix * 1000);
+  const days = Math.max(0, Math.round((d - Date.now()) / 86400000));
+  return 'resets ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (days ? ' (in ' + days + ' day' + (days === 1 ? '' : 's') + ')' : '');
+}
+
+function render() {
+  if (!st) return;
+  $('key').placeholder = st.key_set ? 'Saved key ' + st.key_hint + ' (paste a new one to replace it)' : 'Paste your ElevenLabs API key';
+  $('keyRemove').hidden = !st.key_set;
+  const ks = $('keyStatus');
+  ks.className = 'sub' + (keyErr ? ' bad' : '');
+  ks.textContent = keyErr || (st.key_set ? 'Key saved on the server (' + st.key_hint + '). It is never shown again.' : 'No key yet. Create one at elevenlabs.io under Developers > API keys.');
+  $('test').disabled = !st.key_set;
+  const model = $('model');
+  if (!model.options.length) {
+    for (const m of st.models) { const o = document.createElement('option'); o.value = m.id; o.textContent = m.label + (m.id === st.default_model ? ' (default)' : ''); model.appendChild(o); }
+  }
+  if (document.activeElement !== model) {
+    if (![...model.options].some(o => o.value === st.model)) { const o = document.createElement('option'); o.value = st.model; o.textContent = st.model; model.appendChild(o); }
+    model.value = st.model;
+  }
+  const g = st.guard || {};
+  if (document.activeElement !== $('minPct')) $('minPct').value = g.min_credits_pct != null ? g.min_credits_pct : 5;
+  if (document.activeElement !== $('minCredits')) $('minCredits').value = g.min_credits || 0;
+  if (document.activeElement !== $('maxChars')) $('maxChars').value = g.max_reply_chars != null ? g.max_reply_chars : 1500;
+  const c = st.credits || {}, t = st.tally || {};
+  const cr = $('credits');
+  cr.className = 'sub';
+  if (c.known) {
+    cr.textContent = num(c.remaining) + ' of ' + num(c.limit) + ' left (' + c.remaining_pct + '%)'
+      + (c.reset_unix ? ', ' + resetText(c.reset_unix) : '') + (c.estimated ? ', estimated since the last read' : '')
+      + '. Sent from here this month: ' + num(t.chars) + ' characters, about ' + num(Math.round(t.credits || 0)) + ' credits.';
+    if (c.remaining_pct < (g.min_credits_pct || 0) + 5) cr.className = 'sub warn';
+  } else {
+    cr.textContent = (st.key_set ? (c.error || 'Could not read the credits yet.') : 'Save a key to see the credits.')
+      + (t.chars ? ' Sent from here this month: ' + num(t.chars) + ' characters, about ' + num(Math.round(t.credits || 0)) + ' credits.' : '');
+  }
+  $('notice').textContent = st.paused ? 'Paused: ' + st.pause_reason + '. Odysseus speaks with Kokoro (or the browser voice) instead.' : '';
+}
+
+async function refresh(force) {
+  try { st = await api('api/status' + (force ? '?refresh=1' : '')); }
+  catch (e) { keyErr = 'Could not read the status: ' + e.message; }
+  render();
+}
+
+$('keySave').onclick = async () => {
+  const v = $('key').value.trim();
+  if (!v) { keyErr = 'Paste a key first.'; render(); return; }
+  keyErr = ''; $('keySave').disabled = true;
+  $('keyStatus').textContent = 'Checking the key with ElevenLabs...';
+  try {
+    const r = await api('api/key', { method: 'POST', body: JSON.stringify({ api_key: v }) });
+    $('key').value = '';
+    say(r.warning || 'Key saved', r.warning ? 'warn' : '');
+    await refresh(true);
+  } catch (e) { keyErr = e.message; render(); }
+  finally { $('keySave').disabled = false; }
+};
+$('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('keySave').click(); } });
+$('keyRemove').onclick = async () => {
+  if (!confirm('Remove the saved ElevenLabs API key from this server?')) return;
+  await api('api/key/delete', { method: 'POST', body: '{}' });
+  say('Key removed'); refresh(false);
+};
+$('test').onclick = async () => {
+  $('test').disabled = true;
+  try {
+    const blob = await api('api/test', { method: 'POST', body: '{}' });
+    if (audio) audio.pause();
+    audio = new Audio(URL.createObjectURL(blob)); audio.play();
+    refresh(false);
+  } catch (e) { say(e.message, 'bad'); }
+  finally { $('test').disabled = !(st && st.key_set); }
+};
+$('refresh').onclick = () => refresh(true);
+const saveSettings = async (body) => {
+  try { await api('api/settings', { method: 'POST', body: JSON.stringify(body) }); say('Saved'); refresh(false); }
+  catch (e) { say(e.message, 'bad'); }
+};
+$('model').onchange = () => saveSettings({ model: $('model').value });
+$('minPct').onchange = () => saveSettings({ min_credits_pct: Number($('minPct').value) });
+$('minCredits').onchange = () => saveSettings({ min_credits: Number($('minCredits').value) });
+$('maxChars').onchange = () => saveSettings({ max_reply_chars: Number($('maxChars').value) });
+$('clearCache').onclick = async () => { const r = await api('api/cache/clear', { method: 'POST', body: '{}' }); say('Cleared ' + r.cleared + ' cached clips'); };
+refresh(false);
+</script>
+</body></html>
