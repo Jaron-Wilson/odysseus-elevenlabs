@@ -1,0 +1,4 @@
+# For running standalone (under Odysseus the mod uses Odysseus's own Python, which has these).
+httpx>=0.27,<1
+# Only for scripts/import_from_core.py (moving a key out of an Odysseus data folder) and its test.
+cryptography>=41
